@@ -9,31 +9,23 @@ import argparse
 import os
 import re
 import requests
-
-from bs4 import BeautifulSoup
+import json
 
 try:
     raw_input
 except NameError:
     raw_input = input
 
-URL_CUSTOMIZE = "https://{team_name}.slack.com/customize/emoji"
-URL_ADD = "https://{team_name}.slack.com/api/emoji.add"
-URL_LIST = "https://{team_name}.slack.com/api/emoji.adminList"
-
-API_TOKEN_REGEX = r"api_token: \"(.*)\","
-API_TOKEN_PATTERN = re.compile(API_TOKEN_REGEX)
+URL_ADD = "https://api.slack.com/api/emoji.add"
+URL_LIST = "https://api.slack.com/api/emoji.list"
 
 
 def _session(args):
-    assert args.cookie, "Cookie required"
     assert args.team_name, "Team name required"
     session = requests.session()
-    session.headers = {'Cookie': args.cookie}
-    session.url_customize = URL_CUSTOMIZE.format(team_name=args.team_name)
     session.url_add = URL_ADD.format(team_name=args.team_name)
     session.url_list = URL_LIST.format(team_name=args.team_name)
-    session.api_token = _fetch_api_token(session)
+    session.api_token = args.token
     return session
 
 
@@ -47,9 +39,9 @@ def _argparse():
         help='Defaults to the $SLACK_TEAM environment variable.'
     )
     parser.add_argument(
-        '--cookie', '-c',
-        default=os.getenv('SLACK_COOKIE'),
-        help='Defaults to the $SLACK_COOKIE environment variable.'
+        '--token',
+        default=os.getenv('SLACK_TOKEN'),
+        help='Defaults to the $SLACK_TOKEN environment variable.'
     )
     parser.add_argument(
         '--prefix', '-p',
@@ -73,26 +65,9 @@ def _argparse():
     args = parser.parse_args()
     if not args.team_name:
         args.team_name = raw_input('Please enter the team name: ').strip()
-    if not args.cookie:
-        args.cookie = raw_input('Please enter the "emoji" cookie: ').strip()
+    if not args.token:
+        args.token = raw_input('Please enter the token: ').strip()
     return args
-
-
-def _fetch_api_token(session):
-    # Fetch the form first, to get an api_token.
-    r = session.get(session.url_customize)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    all_script = soup.findAll("script")
-    for script in all_script:
-        for line in script.text.splitlines():
-            if 'api_token' in line:
-                # api_token: "xoxs-12345-abcdefg....",
-                return API_TOKEN_PATTERN.match(line.strip()).group(1)
-
-    raise Exception('api_token not found. response status={}'.format(r.status_code))
-
 
 def main():
     args = _argparse()
@@ -118,25 +93,14 @@ def main():
 
 
 def get_current_emoji_list(session):
-    page = 1
+    response = requests.get(session.url_list + "?token=" + session.api_token)
     result = []
-    while True:
-        data = {
-            'query': '',
-            'page': page,
-            'count': 1000,
-            'token': session.api_token
-        }
-        r = session.post(session.url_list, data=data)
-        r.raise_for_status()
-        response_json = r.json()
-
-        result.extend(map(lambda e: e["name"], response_json["emoji"]))
-        if page >= response_json["paging"]["pages"]:
-            break
-
-        page = page + 1
-    return result
+    if response.status_code != 200:
+        return None
+    else:
+        for name, url in json.loads(response.content.decode('utf-8'))['emoji'].items():
+            result.append(name)
+        return result
 
 
 def upload_emoji(session, emoji_name, filename):
