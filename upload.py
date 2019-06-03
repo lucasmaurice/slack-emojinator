@@ -10,6 +10,7 @@ import os
 import re
 import requests
 import json
+import time
 
 try:
     raw_input
@@ -75,6 +76,7 @@ def main():
     existing_emojis = get_current_emoji_list(session)
     uploaded = 0
     skipped = 0
+    cancelled = 0
     for filename in args.slackmoji_files:
         print("Processing {}.".format(filename))
         emoji_name = '{}{}{}'.format(
@@ -86,10 +88,19 @@ def main():
             print("Skipping {}. Emoji already exists".format(emoji_name))
             skipped += 1
         else:
-            upload_emoji(session, emoji_name, filename)
-            print("{} upload complete.".format(filename))
-            uploaded += 1
-    print('\nUploaded {} emojis. ({} already existed)'.format(uploaded, skipped))
+            result = 10
+            while result > 0:
+                if upload_emoji(session, emoji_name, filename):
+                    result -= 1
+                else:
+                    break
+            if result == 0:
+                print("{} upload cancelled.".format(filename))
+                cancelled += 1
+            else:
+                print("{} upload complete.".format(filename))
+                uploaded += 1
+    print('\nUploaded {} emojis. ({} already existed | {} cancelled)'.format(uploaded, skipped, cancelled))
 
 
 def get_current_emoji_list(session):
@@ -110,13 +121,27 @@ def upload_emoji(session, emoji_name, filename):
         'token': session.api_token
     }
     files = {'image': open(filename, 'rb')}
+
     r = session.post(session.url_add, data=data, files=files, allow_redirects=False)
-    r.raise_for_status()
+
+    try:
+        r.raise_for_status()
+    except requests.exceptions.HTTPError as err:
+        if err.response.status_code == 429:
+            print("Error with uploading %s: Server block us, will wait 100s." % emoji_name)
+            time.sleep(100)
+        else: 
+            print(err)
+            quit()
+        return 1
 
     # Slack returns 200 OK even if upload fails, so check for status.
     response_json = r.json()
     if not response_json['ok']:
         print("Error with uploading %s: %s" % (emoji_name, response_json))
+        return 1
+
+    return 0
 
 
 if __name__ == '__main__':
