@@ -17,15 +17,11 @@ try:
 except NameError:
     raw_input = input
 
-URL_ADD = "https://api.slack.com/api/emoji.add"
-URL_LIST = "https://api.slack.com/api/emoji.list"
-
 
 def _session(args):
-    assert args.team_name, "Team name required"
     session = requests.session()
-    session.url_add = URL_ADD.format(team_name=args.team_name)
-    session.url_list = URL_LIST.format(team_name=args.team_name)
+    session.url_add = "https://api.slack.com/api/emoji.add"
+    session.url_list = "https://api.slack.com/api/emoji.list"
     session.api_token = args.token
     return session
 
@@ -33,11 +29,6 @@ def _session(args):
 def _argparse():
     parser = argparse.ArgumentParser(
         description='Bulk upload emoji to slack'
-    )
-    parser.add_argument(
-        '--team-name', '-t',
-        default=os.getenv('SLACK_TEAM'),
-        help='Defaults to the $SLACK_TEAM environment variable.'
     )
     parser.add_argument(
         '--token',
@@ -64,8 +55,6 @@ def _argparse():
               'in your home dir, then use ~/parrots/*'),
     )
     args = parser.parse_args()
-    if not args.team_name:
-        args.team_name = raw_input('Please enter the team name: ').strip()
     if not args.token:
         args.token = raw_input('Please enter the token: ').strip()
     return args
